@@ -16,7 +16,7 @@ export type Type =
   | { TAGGED: TaggedType }
   | { DEFINED: { module?: string; name: string } }
   | { String: string }
-  | { SELECTION: { name: string, type: Type }};
+  | { SELECTION: { name: string; type: Type } };
 
 export type Value =
   | "NULL"
@@ -26,12 +26,27 @@ export type Value =
   | { REAL: number }
   | { BIT_STRING: bigint }
   | { DEFINED: { module?: string; name: string } }
-  | { CHOICE: { name: string; value: Value } };
+  | { CHOICE: { name: string; value: Value } }
+  | { OBJECT_IDENTIFIER: OidComponent[] }
+  | { CHARACTER_STRING: CharacterStringComponent };
 
 export type TagClass = "UNIVERSAL" | "APPLICATION" | "PRIVATE";
 export type TagPlicity = "EXPLICIT" | "IMPLICIT";
-export type TaggedType = { class?: TagClass; value: number; plicity?: TagPlicity; type: Type };
+export type TaggedType = {
+  class?: TagClass;
+  value: number;
+  plicity?: TagPlicity;
+  type: Type;
+};
 
 export type NamedType = { name: string; type: Type; value?: OptionalOrDefault };
 export type NamedValue = { name: string; value: Value };
 export type OptionalOrDefault = "OPTIONAL" | { DEFAULT: Value };
+
+export type OidComponent = string | bigint | [string, bigint];
+
+export type CharacterStringComponent =
+  | { atom: string }
+  | { tuple: [bigint, bigint] }
+  | { quad: [bigint, bigint, bigint, bigint] }
+  | { group: CharacterStringComponent[] };

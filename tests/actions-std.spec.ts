@@ -3,8 +3,10 @@ import {
   BitStringType,
   BitStringValue,
   bstring,
+  CharacterStringList,
   ChoiceType,
   ChoiceValue,
+  Constraint,
   cstring,
   DefinedType,
   DefinedValue,
@@ -15,17 +17,23 @@ import {
   IntegerType,
   modulereference,
   number,
+  ObjectIdentifierType,
+  ObjectIdentifierValue,
   OctetStringType,
   OctetStringValue,
+  Quadruple,
   realnumber,
   RealType,
   RealValue,
+  RestrictedCharacterStringType,
   SequenceOfType,
   SequenceOfValue,
   SequenceType,
   SetOfType,
   SetOfValue,
   SetType,
+  TaggedType,
+  Tuple,
   Type,
   typereference,
   Value,
@@ -62,12 +70,18 @@ describe("Clause 12: Lexical Items", () => {
   it("get a valuereference", () => {
     const S = new Asn1State();
     expect(P.parse(valuereference, "thisIsAValue", { state: S })).to.be.true;
-    expect(oneItem(S)).to.eql({ kind: "valuereference", value: "thisIsAValue" });
+    expect(oneItem(S)).to.eql({
+      kind: "valuereference",
+      value: "thisIsAValue",
+    });
   });
   it("get a modulereference", () => {
     const S = new Asn1State();
     expect(P.parse(modulereference, "ThisIsAModule", { state: S })).to.be.true;
-    expect(oneItem(S)).to.eql({ kind: "modulereference", value: "ThisIsAModule" });
+    expect(oneItem(S)).to.eql({
+      kind: "modulereference",
+      value: "ThisIsAModule",
+    });
   });
   it("get a number", () => {
     const S = new Asn1State();
@@ -82,12 +96,18 @@ describe("Clause 12: Lexical Items", () => {
   it("get a bstring", () => {
     const S = new Asn1State();
     expect(P.parse(bstring, "'1 00 10 01'B", { state: S })).to.be.true;
-    expect(oneItem(S)).to.eql({ kind: "bstring", value: { length: 7, bits: 73n } });
+    expect(oneItem(S)).to.eql({
+      kind: "bstring",
+      value: { length: 7, bits: 73n },
+    });
   });
   it("get an hstring", () => {
     const S = new Asn1State();
     expect(P.parse(hstring, "'DEAD BEEF'H", { state: S })).to.be.true;
-    expect(oneItem(S)).to.eql({ kind: "hstring", value: { length: 32, bits: 3735928559n } });
+    expect(oneItem(S)).to.eql({
+      kind: "hstring",
+      value: { length: 32, bits: 3735928559n },
+    });
   });
   describe("get some cstrings", () => {
     it("an empty cstring", () => {
@@ -113,12 +133,18 @@ describe("Clause 12: Lexical Items", () => {
     it("a cstring containing CJK ideographs", () => {
       const S = new Asn1State();
       expect(P.parse(cstring, '"有朋自遠方來，不亦樂乎"', { state: S })).to.be.true;
-      expect(oneItem(S)).to.eql({ kind: "cstring", value: "有朋自遠方來，不亦樂乎" });
+      expect(oneItem(S)).to.eql({
+        kind: "cstring",
+        value: "有朋自遠方來，不亦樂乎",
+      });
     });
     it("a cstring containing internal newlines", () => {
       const S = new Asn1State();
       expect(P.parse(cstring, '"ABCDE\tFGH \n\tIJK""XYZ"', { state: S })).to.be.true;
-      expect(oneItem(S)).to.eql({ kind: "cstring", value: 'ABCDE\tFGHIJK"XYZ' });
+      expect(oneItem(S)).to.eql({
+        kind: "cstring",
+        value: 'ABCDE\tFGHIJK"XYZ',
+      });
     });
   });
 });
@@ -128,19 +154,36 @@ describe("Clause 14: type and value references", () => {
 
   it("ExternalTypeReference", () => {
     const S = new Asn1State();
-    expect(P.parse(ExternalTypeReference, "ASN1-CHARACTER-MODULE.BasicLatin", { state: S })).to.be.true;
-    expect(oneItem(S)).to.eql({ kind: "Type", value: { DEFINED: { module: "ASN1-CHARACTER-MODULE", name: "BasicLatin" } } });
+    expect(
+      P.parse(ExternalTypeReference, "ASN1-CHARACTER-MODULE.BasicLatin", {
+        state: S,
+      })
+    ).to.be.true;
+    expect(oneItem(S)).to.eql({
+      kind: "Type",
+      value: {
+        DEFINED: { module: "ASN1-CHARACTER-MODULE", name: "BasicLatin" },
+      },
+    });
   });
 
   it("DefinedType (1)", () => {
     const S = new Asn1State();
     expect(P.parse(DefinedType, "ASN1-CHARACTER-MODULE.BasicLatin", { state: S })).to.be.true;
-    expect(oneItem(S)).to.eql({ kind: "Type", value: { DEFINED: { module: "ASN1-CHARACTER-MODULE", name: "BasicLatin" } } });
+    expect(oneItem(S)).to.eql({
+      kind: "Type",
+      value: {
+        DEFINED: { module: "ASN1-CHARACTER-MODULE", name: "BasicLatin" },
+      },
+    });
   });
   it("DefinedType (2)", () => {
     const S = new Asn1State();
     expect(P.parse(DefinedType, "BasicLatin", { state: S })).to.be.true;
-    expect(oneItem(S)).to.eql({ kind: "Type", value: { DEFINED: { name: "BasicLatin" } } });
+    expect(oneItem(S)).to.eql({
+      kind: "Type",
+      value: { DEFINED: { name: "BasicLatin" } },
+    });
   });
 
   it("ExternalValueReference", () => {
@@ -148,22 +191,39 @@ describe("Clause 14: type and value references", () => {
     expect(P.parse(ExternalValueReference, "ASN1-CHARACTER-MODULE.greekCapitalLetterSigma", { state: S })).to.be.true;
     expect(oneItem(S)).to.eql({
       kind: "Value",
-      value: { DEFINED: { module: "ASN1-CHARACTER-MODULE", name: "greekCapitalLetterSigma" } },
+      value: {
+        DEFINED: {
+          module: "ASN1-CHARACTER-MODULE",
+          name: "greekCapitalLetterSigma",
+        },
+      },
     });
   });
 
   it("DefinedValue (1)", () => {
     const S = new Asn1State();
-    expect(P.parse(DefinedValue, "ASN1-CHARACTER-MODULE.greekCapitalLetterSigma", { state: S })).to.be.true;
+    expect(
+      P.parse(DefinedValue, "ASN1-CHARACTER-MODULE.greekCapitalLetterSigma", {
+        state: S,
+      })
+    ).to.be.true;
     expect(oneItem(S)).to.eql({
       kind: "Value",
-      value: { DEFINED: { module: "ASN1-CHARACTER-MODULE", name: "greekCapitalLetterSigma" } },
+      value: {
+        DEFINED: {
+          module: "ASN1-CHARACTER-MODULE",
+          name: "greekCapitalLetterSigma",
+        },
+      },
     });
   });
   it("DefinedValue (2)", () => {
     const S = new Asn1State();
     expect(P.parse(DefinedValue, "greekCapitalLetterSigma", { state: S })).to.be.true;
-    expect(oneItem(S)).to.eql({ kind: "Value", value: { DEFINED: { name: "greekCapitalLetterSigma" } } });
+    expect(oneItem(S)).to.eql({
+      kind: "Value",
+      value: { DEFINED: { name: "greekCapitalLetterSigma" } },
+    });
   });
 });
 
@@ -220,7 +280,11 @@ describe("Clause 20: Enumerations", () => {
 
   it("rich enumerated type", () => {
     const S = new Asn1State();
-    expect(P.parse(EnumeratedType, "ENUMERATED { a, b(6), d(9), j(x) }", { state: S })).to.be.true;
+    expect(
+      P.parse(EnumeratedType, "ENUMERATED { a, b(6), d(9), j(x) }", {
+        state: S,
+      })
+    ).to.be.true;
     expect(oneItem(S)).to.eql({
       kind: "EnumeratedType",
       value: [
@@ -370,7 +434,11 @@ describe("Clause 23: OCTET STRING", () => {
 
   it("OCTET STRING bstring - no padding", () => {
     const S = new Asn1State();
-    expect(P.parse(OctetStringValue, "'00000001000000101000000011111111'B", { state: S })).to.be.true;
+    expect(
+      P.parse(OctetStringValue, "'00000001000000101000000011111111'B", {
+        state: S,
+      })
+    ).to.be.true;
     expect(oneItem(S)).to.eql({
       kind: "Value",
       value: { OCTET_STRING: new Uint8Array([1, 2, 128, 255]) },
@@ -379,7 +447,11 @@ describe("Clause 23: OCTET STRING", () => {
 
   it("OCTET STRING bstring - with padding", () => {
     const S = new Asn1State();
-    expect(P.parse(OctetStringValue, "'000000010000001010000000111111'B", { state: S })).to.be.true;
+    expect(
+      P.parse(OctetStringValue, "'000000010000001010000000111111'B", {
+        state: S,
+      })
+    ).to.be.true;
     expect(oneItem(S)).to.eql({
       kind: "Value",
       value: { OCTET_STRING: new Uint8Array([1, 2, 128, 252]) },
@@ -410,7 +482,11 @@ describe("Clause 25: SEQUENCE", () => {
 
   it("simple SEQUENCE type", () => {
     const S = new Asn1State();
-    expect(P.parse(SequenceType, "SEQUENCE { a INTEGER, b OCTET STRING }", { state: S })).to.be.true;
+    expect(
+      P.parse(SequenceType, "SEQUENCE { a INTEGER, b OCTET STRING }", {
+        state: S,
+      })
+    ).to.be.true;
     expect(oneItem(S)).to.eql({
       kind: "SequenceType",
       value: [
@@ -422,7 +498,11 @@ describe("Clause 25: SEQUENCE", () => {
 
   it("SEQUENCE type with OPTIONAL", () => {
     const S = new Asn1State();
-    expect(P.parse(SequenceType, "SEQUENCE { a INTEGER OPTIONAL, b OCTET STRING }", { state: S })).to.be.true;
+    expect(
+      P.parse(SequenceType, "SEQUENCE { a INTEGER OPTIONAL, b OCTET STRING }", {
+        state: S,
+      })
+    ).to.be.true;
     expect(oneItem(S)).to.eql({
       kind: "SequenceType",
       value: [
@@ -438,7 +518,11 @@ describe("Clause 25: SEQUENCE", () => {
     expect(oneItem(S)).to.eql({
       kind: "SequenceType",
       value: [
-        { name: "a", type: { INTEGER: [] }, value: { DEFAULT: { INTEGER: 42n } } },
+        {
+          name: "a",
+          type: { INTEGER: [] },
+          value: { DEFAULT: { INTEGER: 42n } },
+        },
         { name: "b", type: "OCTET STRING" },
       ],
     });
@@ -535,7 +619,11 @@ describe("Clause 27: SET", () => {
 
   it("SET type with OPTIONAL", () => {
     const S = new Asn1State();
-    expect(P.parse(SetType, "SET { a INTEGER OPTIONAL, b OCTET STRING }", { state: S })).to.be.true;
+    expect(
+      P.parse(SetType, "SET { a INTEGER OPTIONAL, b OCTET STRING }", {
+        state: S,
+      })
+    ).to.be.true;
     expect(oneItem(S)).to.eql({
       kind: "SetType",
       value: [
@@ -547,11 +635,19 @@ describe("Clause 27: SET", () => {
 
   it("SET type with DEFAULT", () => {
     const S = new Asn1State();
-    expect(P.parse(SetType, "SET { a INTEGER DEFAULT 42, b OCTET STRING }", { state: S })).to.be.true;
+    expect(
+      P.parse(SetType, "SET { a INTEGER DEFAULT 42, b OCTET STRING }", {
+        state: S,
+      })
+    ).to.be.true;
     expect(oneItem(S)).to.eql({
       kind: "SetType",
       value: [
-        { name: "a", type: { INTEGER: [] }, value: { DEFAULT: { INTEGER: 42n } } },
+        {
+          name: "a",
+          type: { INTEGER: [] },
+          value: { DEFAULT: { INTEGER: 42n } },
+        },
         { name: "b", type: "OCTET STRING" },
       ],
     });
@@ -559,7 +655,11 @@ describe("Clause 27: SET", () => {
 
   it("nested SET types", () => {
     const S = new Asn1State();
-    expect(P.parse(SetType, "SET { a INTEGER, b SET { a INTEGER, b BOOLEAN } }", { state: S })).to.be.true;
+    expect(
+      P.parse(SetType, "SET { a INTEGER, b SET { a INTEGER, b BOOLEAN } }", {
+        state: S,
+      })
+    ).to.be.true;
     expect(oneItem(S)).to.eql({
       kind: "SetType",
       value: [
@@ -673,5 +773,205 @@ describe("Clause 29 CHOICE", () => {
       kind: "Value",
       value: { CHOICE: { name: "a", value: { INTEGER: 42n } } },
     });
+  });
+});
+
+describe("Clause 31 Tags", () => {
+  const P = new Parser({ separators: Asn1Separators });
+
+  it("simple Tagged type", () => {
+    const S = new Asn1State();
+    expect(P.parse(TaggedType, "[1] INTEGER", { state: S })).to.be.true;
+    expect(oneItem(S)).to.eql({
+      kind: "TaggedType",
+      value: { value: { INTEGER: 1n }, type: { INTEGER: [] } },
+    });
+  });
+
+  it("implicit Tagged type", () => {
+    const S = new Asn1State();
+    expect(P.parse(TaggedType, "[1] IMPLICIT INTEGER", { state: S })).to.be.true;
+    expect(oneItem(S)).to.eql({
+      kind: "TaggedType",
+      value: {
+        value: { INTEGER: 1n },
+        plicity: "IMPLICIT",
+        type: { INTEGER: [] },
+      },
+    });
+  });
+
+  it("explicit Tagged type", () => {
+    const S = new Asn1State();
+    expect(P.parse(TaggedType, "[1] EXPLICIT INTEGER", { state: S })).to.be.true;
+    expect(oneItem(S)).to.eql({
+      kind: "TaggedType",
+      value: {
+        value: { INTEGER: 1n },
+        plicity: "EXPLICIT",
+        type: { INTEGER: [] },
+      },
+    });
+  });
+});
+
+describe("Clause 32 Object Identifiers", () => {
+  const P = new Parser({ separators: Asn1Separators });
+
+  it("OBJECT IDENTIFIER type", () => {
+    const S = new Asn1State();
+    expect(P.parse(ObjectIdentifierType, "OBJECT IDENTIFIER", { state: S })).to.be.true;
+    expect(oneItem(S)).to.eql({
+      kind: "Type",
+      value: "OBJECT IDENTIFIER",
+    });
+  });
+
+  it("simple OID value", () => {
+    const S = new Asn1State();
+    expect(P.parse(ObjectIdentifierValue, "{ iso standard 8571 application-context (1) }", { state: S })).to.be.true;
+    expect(oneItem(S)).to.eql({
+      kind: "OidValue",
+      value: ["iso", "standard", 8571n, ["application-context", 1n]],
+    });
+  });
+});
+
+describe("Clauses 39, 40, 41, 42, 43, 44: Strings", () => {
+  const P = new Parser({ separators: Asn1Separators });
+
+  describe("restricted character string types", () => {
+    const types: string[] = [
+      "BMPString",
+      "GeneralString",
+      "GraphicString",
+      "IA5String",
+      "ISO646String",
+      "NumericString",
+      "PrintableString",
+      "TeletexString",
+      "T61String",
+      "UniversalString",
+      "UTF8String",
+      "VideotexString",
+      "VisibleString",
+    ];
+
+    for (const kind of types) {
+      it(kind, () => {
+        const S = new Asn1State();
+        expect(P.parse(RestrictedCharacterStringType, kind, { state: S })).to.be.true;
+        expect(oneItem(S)).to.eql({
+          kind: "Type",
+          value: { String: kind },
+        });
+      });
+    }
+  });
+
+  describe("tuples", () => {
+    it("\\n", () => {
+      const S = new Asn1State();
+      expect(P.parse(Tuple, "{0, 10}", { state: S })).to.be.true;
+      expect(oneItem(S)).to.eql({
+        kind: "Value",
+        value: { CHARACTER_STRING: { tuple: [0n, 10n] } },
+      });
+    });
+
+    it("esc", () => {
+      const S = new Asn1State();
+      expect(P.parse(Tuple, "{1, 11}", { state: S })).to.be.true;
+      expect(oneItem(S)).to.eql({
+        kind: "Value",
+        value: { CHARACTER_STRING: { tuple: [1n, 11n] } },
+      });
+    });
+  });
+
+  describe("quads", () => {
+    it("D", () => {
+      const S = new Asn1State();
+      expect(P.parse(Quadruple, "{0, 0, 0, 68}", { state: S })).to.be.true;
+      expect(oneItem(S)).to.eql({
+        kind: "Value",
+        value: { CHARACTER_STRING: { quad: [0n, 0n, 0n, 68n] } },
+      });
+    });
+
+    it("😍", () => {
+      const S = new Asn1State();
+      expect(P.parse(Quadruple, "{0, 1, 246, 13}", { state: S })).to.be.true;
+      expect(oneItem(S)).to.eql({
+        kind: "Value",
+        value: { CHARACTER_STRING: { quad: [0n, 1n, 246n, 13n] } },
+      });
+    });
+  });
+
+  describe("compound", () => {
+    it("abc\\ndef", () => {
+      const S = new Asn1State();
+      expect(P.parse(CharacterStringList, '{"abc", {0, 10}, "def"}', { state: S })).to.be.true;
+      expect(oneItem(S)).to.eql({
+        kind: "CharacterStringList",
+        value: [{ atom: "abc" }, { tuple: [0n, 10n] }, { atom: "def" }],
+      });
+    });
+  });
+});
+
+describe("Clauses 49-51: Constraints", () => {
+  const P = new Parser({ separators: Asn1Separators });
+
+  describe("Atomic Constraints", () => {
+    it("Single Value", () => {
+      const S = new Asn1State();
+      expect(P.parse(Constraint, "(1)", { state: S })).to.be.true;
+      expect(oneItem(S)).to.eql({
+        kind: "Constraint",
+        value: { kind: "Value", value: { INTEGER: 1n } },
+      });
+    });
+
+    describe("Value Ranges", () => {
+      it("[1, 10]", () => {
+        const S = new Asn1State();
+        expect(P.parse(Constraint, "(1..10)", { state: S })).to.be.true;
+        expect(oneItem(S)).to.eql({
+          kind: "Constraint",
+          value: { kind: "Range", min: { INTEGER: 1n }, minIncluded: true, max: {INTEGER: 10n}, maxIncluded: true },
+        });
+      });
+
+      it("(1, 10]", () => {
+        const S = new Asn1State();
+        expect(P.parse(Constraint, "(1<..10)", { state: S })).to.be.true;
+        expect(oneItem(S)).to.eql({
+          kind: "Constraint",
+          value: { kind: "Range", min: { INTEGER: 1n }, minIncluded: false, max: {INTEGER: 10n}, maxIncluded: true },
+        });
+      });
+
+      it("[1, 10)", () => {
+        const S = new Asn1State();
+        expect(P.parse(Constraint, "(1..<10)", { state: S })).to.be.true;
+        expect(oneItem(S)).to.eql({
+          kind: "Constraint",
+          value: { kind: "Range", min: { INTEGER: 1n }, minIncluded: true, max: {INTEGER: 10n}, maxIncluded: false },
+        });
+      });
+
+      it("(1, 10)", () => {
+        const S = new Asn1State();
+        expect(P.parse(Constraint, "(1<..<10)", { state: S })).to.be.true;
+        expect(oneItem(S)).to.eql({
+          kind: "Constraint",
+          value: { kind: "Range", min: { INTEGER: 1n }, minIncluded: false, max: {INTEGER: 10n}, maxIncluded: false },
+        });
+      });
+
+    });
+
   });
 });

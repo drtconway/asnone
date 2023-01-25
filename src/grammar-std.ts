@@ -514,16 +514,17 @@ export const SelectionType: ParsingExpression = [asn1identifier, tok("<"), Type]
 //
 // Limitation: EncodingPrefixedType not supported.
 
-const EncodingReference = opt([encodingreference, tok(":")]);
-const TagClass: ParsingExpression = opt(sor(kw("UNIVERSAL"), kw("APPLICATION"), kw("PRIVATE")));
-const TagClassNumber: ParsingExpression = sor(number, DefinedValue);
-const Tag: ParsingExpression = [tok("["), EncodingReference, TagClass, TagClassNumber, tok("]")];
-const ExplicitTag: ParsingExpression = kw("EXPLICIT");
-const ImplicitTag: ParsingExpression = kw("IMPLICIT");
-const OptExplicitOrImplicit: ParsingExpression = opt(sor(ExplicitTag, ImplicitTag));
-const TaggedType: ParsingExpression = [Tag, OptExplicitOrImplicit, Type];
-export const PrefixedType: ParsingExpression = copy(TaggedType);
-export const PrefixedValue: ParsingExpression = copy(Value);
+export const EncodingReference = [encodingreference, tok(":")];
+export const TagClass: ParsingExpression = sor(kw("UNIVERSAL"), kw("APPLICATION"), kw("PRIVATE"));
+export const TagClassNumber: ParsingExpression = sor(number, DefinedValue);
+export const TagIntroducer: ParsingExpression = seq();
+const Tag: ParsingExpression = [TagIntroducer, tok("["), opt(EncodingReference), opt(TagClass), TagClassNumber, tok("]")];
+export const ExplicitTag: ParsingExpression = kw("EXPLICIT");
+export const ImplicitTag: ParsingExpression = kw("IMPLICIT");
+const ExplicitOrImplicit: ParsingExpression = sor(ExplicitTag, ImplicitTag);
+export const TaggedType: ParsingExpression = [Tag, opt(ExplicitOrImplicit), Type];
+export const PrefixedType: ParsingExpression = TaggedType
+export const PrefixedValue: ParsingExpression = Value;
 
 // Clause 32
 //
@@ -531,13 +532,13 @@ export const PrefixedValue: ParsingExpression = copy(Value);
 //
 
 export const ObjectIdentifierType: ParsingExpression = [kw("OBJECT"), kw("IDENTIFIER")];
-const OptDefinedValue: ParsingExpression = opt(DefinedValue);
-const NameForm: ParsingExpression = asn1identifier;
-const NumberForm: ParsingExpression = number;
-const NameAndNumberForm: ParsingExpression = [asn1identifier, tok("("), NumberForm, tok(")")];
+export const NameForm: ParsingExpression = seq(asn1identifier);
+export const NumberForm: ParsingExpression = seq(number);
+export const NameAndNumberForm: ParsingExpression = [asn1identifier, tok("("), number, tok(")")];
 const ObjIdComponents = sor(NameAndNumberForm, NameForm, NumberForm);
 const ObjIdComponentsList: ParsingExpression = rep1([ObjIdComponents]);
-export const ObjectIdentifierValue: ParsingExpression = [tok("{"), ObjIdComponentsList, tok("}")];
+export const ObjectIdentifierValueIntroducer: ParsingExpression = seq();
+export const ObjectIdentifierValue: ParsingExpression = [ObjectIdentifierValueIntroducer, tok("{"), ObjIdComponentsList, tok("}")];
 
 // Clause 33
 //
@@ -565,7 +566,7 @@ export const DurationType: ParsingExpression = kw("DURATION");
 // Clause 39, 40, 41, 42, 43, 44
 //
 
-const RestrictedCharacterStringType: ParsingExpression = sor(
+export const RestrictedCharacterStringType: ParsingExpression = sor(
   kw("BMPString"),
   kw("GeneralString"),
   kw("GraphicString"),
@@ -580,14 +581,16 @@ const RestrictedCharacterStringType: ParsingExpression = sor(
   kw("VideotexString"),
   kw("VisibleString")
 );
-const UnrestrictedCharacterStringType: ParsingExpression = [kw("CHARACTER"), kw("STRING")];
+export const UnrestrictedCharacterStringType: ParsingExpression = [kw("CHARACTER"), kw("STRING")];
 export const CharacterStringType: ParsingExpression = sor(RestrictedCharacterStringType, UnrestrictedCharacterStringType);
-const Quadruple: ParsingExpression = [tok("{"), number, tok(","), number, tok(","), number, tok(","), number, tok("}")];
-const Tuple: ParsingExpression = [tok("{"), number, tok(","), number, tok("}")];
-const CharsDefn = sor(cstring, Quadruple, Tuple, DefinedValue);
-const CharSyms: ParsingExpression = [CharsDefn, rep0(tok(","), CharsDefn)];
-const CharacterStringList: ParsingExpression = [tok("{"), CharSyms, tok("}")];
-const RestrictedCharacterStringValue = sor(cstring, Quadruple, Tuple, CharacterStringList);
+export const Quadruple: ParsingExpression = [tok("{"), number, tok(","), number, tok(","), number, tok(","), number, tok("}")];
+export const Tuple: ParsingExpression = [tok("{"), number, tok(","), number, tok("}")];
+export const AtomicCharacterString: ParsingExpression = seq(cstring);
+export const CharsDefn = sor(AtomicCharacterString, Quadruple, Tuple, DefinedValue);
+export const CharSyms: ParsingExpression = [CharsDefn, rep0(tok(","), CharsDefn)];
+export const CharacterStringListIntroducer: ParsingExpression = seq();
+export const CharacterStringList: ParsingExpression = [CharacterStringListIntroducer, tok("{"), CharSyms, tok("}")];
+const RestrictedCharacterStringValue = sor(AtomicCharacterString, Quadruple, Tuple, CharacterStringList);
 const UnrestrictedCharacterStringValue: ParsingExpression = SequenceValue;
 export const CharacterStringValue: ParsingExpression = sor(RestrictedCharacterStringValue, UnrestrictedCharacterStringValue);
 
@@ -607,15 +610,21 @@ const UsefulType: ParsingExpression = typereference;
 //
 
 export const Constraint: ParsingExpression = fwd("Constraint");
-const SingleValue: ParsingExpression = Value;
+export const SingleValue: ParsingExpression = seq(Value);
 const OptIncludes: ParsingExpression = opt(kw("INCLUDES"));
 const ContainedSubtype: ParsingExpression = [OptIncludes, Type];
-const LowerEndValue: ParsingExpression = sor(Value, kw("MIN"));
-const OptLess: ParsingExpression = opt(tok("<"));
-const LowerEndpoint: ParsingExpression = [LowerEndValue, OptLess];
-const UpperEndValue: ParsingExpression = sor(Value, kw("MAX"));
-const UpperEndpoint: ParsingExpression = [OptLess, UpperEndValue];
-const ValueRange: ParsingExpression = [LowerEndpoint, tok(".."), UpperEndpoint];
+export const LowerEndValueValue: ParsingExpression = seq(Value);
+export const LowerEndValueMin: ParsingExpression = kw("MIN");
+const LowerEndValue: ParsingExpression = sor(LowerEndValueValue, LowerEndValueMin);
+export const LowerLess: ParsingExpression = tok("<");
+const LowerEndpoint: ParsingExpression = [LowerEndValue, opt(LowerLess)];
+export const UpperEndValueValue: ParsingExpression = seq(Value);
+export const UpperEndValueMax: ParsingExpression = kw("MAX");
+const UpperEndValue: ParsingExpression = sor(UpperEndValueValue, UpperEndValueMax);
+export const UpperLess: ParsingExpression = tok("<");
+const UpperEndpoint: ParsingExpression = [opt(UpperLess), UpperEndValue];
+export const ValueRangeIntroducer: ParsingExpression = seq();
+export const ValueRange: ParsingExpression = [ValueRangeIntroducer, LowerEndpoint, tok(".."), UpperEndpoint];
 const PermittedAlphabet: ParsingExpression = [kw("FROM"), Constraint];
 const SizeConstraint: ParsingExpression = [kw("SIZE"), Constraint];
 const TypeConstraint: ParsingExpression = Type;
@@ -656,10 +665,12 @@ const Exclusions: ParsingExpression = [kw("EXCEPT"), Elements];
 const ExclusionsSpec: ParsingExpression = [kw("ALL"), Exclusions];
 const OptExclusions: ParsingExpression = opt(Exclusions);
 const IntersectionElements: ParsingExpression = [Elements, OptExclusions];
-const IntersectionMark = sor(tok("^"), kw("INTERSECTION"));
-const Intersections: ParsingExpression = [IntersectionElements, rep0(IntersectionMark, IntersectionElements)];
-const UnionMark: ParsingExpression = sor(tok("|"), kw("UNION"));
-const Unions: ParsingExpression = [Intersections, rep0(UnionMark, Intersections)];
+export const IntersectionMark = sor(tok("^"), kw("INTERSECTION"));
+export const IntersectionsIntroducer: ParsingExpression = seq();
+const Intersections: ParsingExpression = [IntersectionsIntroducer, IntersectionElements, rep0(IntersectionMark, IntersectionElements)];
+export const UnionMark: ParsingExpression = sor(tok("|"), kw("UNION"));
+export const UnionsIntroducer: ParsingExpression = seq();
+const Unions: ParsingExpression = [UnionsIntroducer, Intersections, rep0(UnionMark, Intersections)];
 assign(ElementSetSpec, sor(ExclusionsSpec, Unions));
 const SubtypeConstraint: ParsingExpression = ElementSetSpec;
 const ConstraintSpec: ParsingExpression = SubtypeConstraint;

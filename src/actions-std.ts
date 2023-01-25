@@ -1,6 +1,7 @@
 import { apply, Lazy, State } from "./peg2";
 import {
   asn1identifier,
+  AtomicCharacterString,
   BitStringType,
   BitStringTypeIntroducer,
   BitStringValue,
@@ -9,45 +10,62 @@ import {
   bstring,
   BuiltinType,
   BuiltinValue,
+  CharacterStringList,
+  CharacterStringListIntroducer,
   ChoiceType,
   ChoiceTypeIntroducer,
   ChoiceValue,
   cstring,
+  DateTimeType,
+  DateType,
   DefaultComponentTypeQualifier,
   DefinedType,
   DefinedValue,
+  DurationType,
+  EncodingReference,
   encodingreference,
   EnumeratedType,
   EnumeratedTypeIntroducer,
   EnumeratedValue,
   EnumerationItem,
+  ExplicitTag,
   ExternalTypeReference,
   ExternalValueReference,
   hstring,
   IdentifierListIntroducer,
+  ImplicitTag,
   IntegerType,
   IntegerTypeIntroducer,
   IntegerValue,
+  LowerEndValueValue,
+  LowerLess,
   modulereference,
+  NameAndNumberForm,
   NamedBit,
   NamedNumber,
   NamedNumberItem,
   NamedType,
   NamedValue,
+  NameForm,
   NegatedNumber,
   NegatedNumericRealValue,
   NullType,
   NullValue,
   number,
+  NumberForm,
   NumberOrReference,
   NumericRealValue,
+  ObjectIdentifierType,
+  ObjectIdentifierValueIntroducer,
   OctetStringType,
   OctetStringValue,
   OptionalComponentTypeQualifier,
   psname,
+  Quadruple,
   realnumber,
   RealType,
   RealValue,
+  RestrictedCharacterStringType,
   SelectionType,
   SequenceOfType,
   SequenceOfValue,
@@ -63,15 +81,37 @@ import {
   SetTypeIntroducer,
   SetValue,
   SetValueIntroducer,
+  SingleValue,
   SpecialRealValue,
+  TagClass,
+  TagClassNumber,
+  TaggedType,
+  TagIntroducer,
+  TimeOfDayType,
+  TimeType,
   tstring,
+  Tuple,
   TypeAssignment,
   typereference,
+  UnrestrictedCharacterStringType,
+  UpperEndValueValue,
+  UpperLess,
   ValueAssignment,
+  ValueRange,
+  ValueRangeIntroducer,
   valuereference,
 } from "./grammar-std";
-import { cons, pop1, pop2, pop3, Stack, toArray } from "./stack";
-import type { NamedValue as NamedValueType, OptionalOrDefault, TagClass, TagPlicity, Type, Value } from "./types";
+import { cons, pop1, pop2, pop3, pop4, Stack, toArray } from "./stack";
+import type {
+  CharacterStringComponent,
+  NamedValue as NamedValueType,
+  OidComponent,
+  OptionalOrDefault,
+  TagClass as TagClassType,
+  TagPlicity,
+  Type,
+  Value,
+} from "./types";
 
 export type BitString = { length: number; bits: bigint };
 
@@ -82,6 +122,11 @@ export type AbstractType =
   | "OBJECT IDENTIFIER"
   | "OCTET STRING"
   | "EXTERNAL"
+  | "TIME"
+  | "DATE"
+  | "TIME-OF-DAY"
+  | "DATE-TIME"
+  | "DURATION"
   | { INTEGER: NamedValueType[] }
   | { ENUMERATED: { name: string; value?: Value }[] }
   | { BIT_STRING: NamedValueType[] }
@@ -95,9 +140,25 @@ export type AbstractType =
   | { SELECTION: { name: string; type: AbstractType } }
   | { String: string };
 
-export type AbstractNamedType = { name: string; type: AbstractType; value?: OptionalOrDefault };
+export type AbstractNamedType = {
+  name: string;
+  type: AbstractType;
+  value?: OptionalOrDefault;
+};
 
-export type AbstractTaggedType = { class?: TagClass; value: number | string; plicity?: TagPlicity; type: AbstractType };
+export type AbstractTaggedType = {
+  class?: TagClassType;
+  value: Value;
+  plicity?: TagPlicity;
+  type: AbstractType;
+};
+
+export type AbstractConstraint =
+  | { kind: "Value"; value: Value }
+  | { kind: "Union"; value: AbstractConstraint[] }
+  | { kind: "Intersection"; value: AbstractConstraint[] }
+  | { kind: "Except"; value: AbstractConstraint; except: AbstractConstraint }
+  | { kind: "Range"; min: Value | "MIN"; minIncluded: boolean; max: Value | "MAX"; maxIncluded: boolean };
 
 export type Item =
   | { kind: "typereference"; value: string }
@@ -128,7 +189,14 @@ export type Item =
   | { kind: "SetType"; value: AbstractNamedType[] }
   | { kind: "SetValue"; value: NamedValueType[] }
   | { kind: "SetOfValue"; value: Value[] | NamedValueType[] }
-  | { kind: "ChoiceType"; value: AbstractNamedType[] };
+  | { kind: "ChoiceType"; value: AbstractNamedType[] }
+  | { kind: "TaggedType"; value: AbstractTaggedType }
+  | { kind: "OidValue"; value: OidComponent[] }
+  | { kind: "CharacterStringList"; value: CharacterStringComponent[] }
+  | { kind: "Unions"; value: AbstractConstraint[] }
+  | { kind: "Intersections"; value: AbstractConstraint[] }
+  | { kind: "Constraint"; value: AbstractConstraint }
+  | { kind: "ValueRange"; min: Value | "MIN"; minIncluded: boolean; max: Value | "MAX"; maxIncluded: boolean };
 
 export class Asn1State implements State {
   stack: Stack<Item>;
@@ -278,8 +346,15 @@ export function actions(): void {
   apply(ExternalTypeReference, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [mItem, tItem, stk] = pop2(state.stack);
+      /* istanbul ignore else */
       if (mItem.kind == "modulereference" && tItem.kind == "typereference") {
-        state.stack = cons({ kind: "Type", value: { DEFINED: { module: mItem.value, name: tItem.value } } }, stk);
+        state.stack = cons(
+          {
+            kind: "Type",
+            value: { DEFINED: { module: mItem.value, name: tItem.value } },
+          },
+          stk
+        );
       } else {
         throw new Error(`internal error at ExternalTypeReference: [${mItem.kind}, ${tItem.kind}]`);
       }
@@ -289,8 +364,15 @@ export function actions(): void {
   apply(ExternalValueReference, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [mItem, vItem, stk] = pop2(state.stack);
+      /* istanbul ignore else */
       if (mItem.kind == "modulereference" && vItem.kind == "valuereference") {
-        state.stack = cons({ kind: "Value", value: { DEFINED: { module: mItem.value, name: vItem.value } } }, stk);
+        state.stack = cons(
+          {
+            kind: "Value",
+            value: { DEFINED: { module: mItem.value, name: vItem.value } },
+          },
+          stk
+        );
       } else {
         throw new Error(`internal error at ExternalValueReference: [${mItem.kind}, ${vItem.kind}]`);
       }
@@ -300,6 +382,7 @@ export function actions(): void {
   apply(DefinedType, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [item, stk] = pop1(state.stack);
+      /* istanbul ignore else */
       if (item.kind == "Type") {
         state.stack = cons(item, stk);
       } else if (item.kind == "typereference") {
@@ -313,6 +396,7 @@ export function actions(): void {
   apply(DefinedValue, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [item, stk] = pop1(state.stack);
+      /* istanbul ignore else */
       if (item.kind == "Value") {
         state.stack = cons(item, stk);
       } else if (item.kind == "valuereference") {
@@ -329,8 +413,15 @@ export function actions(): void {
   apply(TypeAssignment, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [nItem, tItem, stk] = pop2(state.stack);
+      /* istanbul ignore else */
       if (nItem.kind == "typereference" && tItem.kind == "Type") {
-        state.stack = cons({ kind: "TypeAssignment", value: { name: nItem.value, type: tItem.value } }, stk);
+        state.stack = cons(
+          {
+            kind: "TypeAssignment",
+            value: { name: nItem.value, type: tItem.value },
+          },
+          stk
+        );
       } else {
         throw new Error(`internal error at TypeAssignment: [${nItem.kind}, ${tItem.kind}]`);
       }
@@ -340,8 +431,15 @@ export function actions(): void {
   apply(ValueAssignment, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [nItem, vItem, stk] = pop2(state.stack);
+      /* istanbul ignore else */
       if (nItem.kind == "typereference" && vItem.kind == "Value") {
-        state.stack = cons({ kind: "ValueAssignment", value: { name: nItem.value, value: vItem.value } }, stk);
+        state.stack = cons(
+          {
+            kind: "ValueAssignment",
+            value: { name: nItem.value, value: vItem.value },
+          },
+          stk
+        );
       } else {
         throw new Error(`internal error at TypeAssignment: [${nItem.kind}, ${vItem.kind}]`);
       }
@@ -354,8 +452,15 @@ export function actions(): void {
   apply(NamedType, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [nItem, tItem, stk] = pop2(state.stack);
+      /* istanbul ignore else */
       if (nItem.kind == "identifier" && tItem.kind == "Type") {
-        state.stack = cons({ kind: "NamedType", value: { name: nItem.value, type: tItem.value } }, stk);
+        state.stack = cons(
+          {
+            kind: "NamedType",
+            value: { name: nItem.value, type: tItem.value },
+          },
+          stk
+        );
       } else {
         throw new Error(`internal error at NamedType: [${nItem.kind}, ${tItem.kind}]`);
       }
@@ -365,8 +470,15 @@ export function actions(): void {
   apply(NamedValue, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [nItem, tItem, stk] = pop2(state.stack);
+      /* istanbul ignore else */
       if (nItem.kind == "identifier" && tItem.kind == "Value") {
-        state.stack = cons({ kind: "NamedValue", value: { name: nItem.value, value: tItem.value } }, stk);
+        state.stack = cons(
+          {
+            kind: "NamedValue",
+            value: { name: nItem.value, value: tItem.value },
+          },
+          stk
+        );
       } else {
         throw new Error(`internal error at NamedValue: [${nItem.kind}, ${tItem.kind}]`);
       }
@@ -443,6 +555,7 @@ export function actions(): void {
     if (state instanceof Asn1State) {
       const src = txt.get();
       let value: boolean;
+      /* istanbul ignore else */
       if (src == "TRUE") {
         value = true;
       } else if (src == "FALSE") {
@@ -460,6 +573,7 @@ export function actions(): void {
   apply(NegatedNumber, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [item, stk] = pop1(state.stack);
+      /* istanbul ignore else */
       if (item.kind == "number") {
         state.stack = cons({ kind: "number", value: -item.value }, stk);
       } else {
@@ -471,6 +585,7 @@ export function actions(): void {
   apply(NumberOrReference, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [item, stk] = pop1(state.stack);
+      /* istanbul ignore else */
       if (item.kind == "number") {
         state.stack = cons({ kind: "Value", value: { INTEGER: item.value } }, stk);
       } else if (item.kind == "Value") {
@@ -484,8 +599,12 @@ export function actions(): void {
   apply(NamedNumber, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [nItem, vItem, stk] = pop2(state.stack);
+      /* istanbul ignore else */
       if (nItem.kind == "identifier" && vItem.kind == "Value") {
-        const res: Item = { kind: "NamedValue", value: { name: nItem.value, value: vItem.value } };
+        const res: Item = {
+          kind: "NamedValue",
+          value: { name: nItem.value, value: vItem.value },
+        };
         state.stack = cons(res, stk);
       } else {
         throw new Error(`internal error at NamedNumber: [${nItem.kind}, ${vItem.kind}]`);
@@ -496,8 +615,12 @@ export function actions(): void {
   apply(NamedNumberItem, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [iItem, nItem, stk] = pop2(state.stack);
+      /* istanbul ignore else */
       if (iItem.kind == "IntegerType" && nItem.kind == "NamedValue") {
-        const res: Item = { kind: "IntegerType", value: [...iItem.value, nItem.value] };
+        const res: Item = {
+          kind: "IntegerType",
+          value: [...iItem.value, nItem.value],
+        };
         state.stack = cons(res, stk);
       } else {
         throw new Error(`internal error at NamedNumberItem: [${iItem.kind}, ${nItem.kind}]`);
@@ -515,6 +638,7 @@ export function actions(): void {
   apply(IntegerValue, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [item, stk] = pop1(state.stack);
+      /* istanbul ignore else */
       if (item.kind == "number") {
         state.stack = cons({ kind: "Value", value: { INTEGER: item.value } }, stk);
       } else if (item.kind == "identifier") {
@@ -530,11 +654,18 @@ export function actions(): void {
   apply(EnumerationItem, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [eItem, nItem, stk] = pop2(state.stack);
+      /* istanbul ignore else */
       if (eItem.kind == "EnumeratedType" && nItem.kind == "NamedValue") {
-        const res: Item = { kind: "EnumeratedType", value: [...eItem.value, nItem.value] };
+        const res: Item = {
+          kind: "EnumeratedType",
+          value: [...eItem.value, nItem.value],
+        };
         state.stack = cons(res, stk);
       } else if (eItem.kind == "EnumeratedType" && nItem.kind == "identifier") {
-        const res: Item = { kind: "EnumeratedType", value: [...eItem.value, { name: nItem.value }] };
+        const res: Item = {
+          kind: "EnumeratedType",
+          value: [...eItem.value, { name: nItem.value }],
+        };
         state.stack = cons(res, stk);
       } else {
         throw new Error(`internal error at EnumerationItem: [${eItem.kind}, ${nItem.kind}]`);
@@ -552,8 +683,12 @@ export function actions(): void {
   apply(EnumeratedValue, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [item, stk] = pop1(state.stack);
+      /* istanbul ignore else */
       if (item.kind == "identifier") {
-        const res: Item = { kind: "Value", value: { DEFINED: { name: item.value } } };
+        const res: Item = {
+          kind: "Value",
+          value: { DEFINED: { name: item.value } },
+        };
         state.stack = cons(res, state.stack);
       } else {
         throw new Error(`internal error at EnumeratedValue: [${item.kind}]`);
@@ -573,6 +708,7 @@ export function actions(): void {
   apply(NegatedNumericRealValue, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [item, stk] = pop1(state.stack);
+      /* istanbul ignore else */
       if (item.kind == "realnumber") {
         state.stack = cons({ kind: "realnumber", value: -item.value }, stk);
       } else {
@@ -584,6 +720,7 @@ export function actions(): void {
   apply(NumericRealValue, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [item, stk] = pop1(state.stack);
+      /* istanbul ignore else */
       if (item.kind == "realnumber") {
         state.stack = cons({ kind: "Value", value: { REAL: item.value } }, stk);
       } else {
@@ -596,6 +733,7 @@ export function actions(): void {
     if (state instanceof Asn1State) {
       const src = txt.get();
       let val: number;
+      /* istanbul ignore else */
       if (src == "PLUS-INFINITY") {
         val = Number.POSITIVE_INFINITY;
       } else if (src == "MINUS-INFINITY") {
@@ -615,11 +753,18 @@ export function actions(): void {
   apply(NamedBit, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [nItem, vItem, stk] = pop2(state.stack);
+      /* istanbul ignore else */
       if (nItem.kind == "identifier" && vItem.kind == "Value") {
-        const res: Item = { kind: "NamedValue", value: { name: nItem.value, value: vItem.value } };
+        const res: Item = {
+          kind: "NamedValue",
+          value: { name: nItem.value, value: vItem.value },
+        };
         state.stack = cons(res, stk);
       } else if (nItem.kind == "identifier" && vItem.kind == "number") {
-        const res: Item = { kind: "NamedValue", value: { name: nItem.value, value: { INTEGER: vItem.value } } };
+        const res: Item = {
+          kind: "NamedValue",
+          value: { name: nItem.value, value: { INTEGER: vItem.value } },
+        };
         state.stack = cons(res, stk);
       } else {
         throw new Error(`internal error at NamedBit: [${nItem.kind}, ${vItem.kind}]`);
@@ -639,12 +784,12 @@ export function actions(): void {
       let stack = state.stack;
       while (true) {
         const [item, stk] = pop1(stack);
+        /* istanbul ignore else */
         if (item.kind == "BitStringType") {
           bits.reverse();
           state.stack = cons({ kind: "BitStringType", value: bits }, stk);
           return;
-        }
-        if (item.kind == "NamedValue") {
+        } else if (item.kind == "NamedValue") {
           bits.push(item.value);
           stack = stk;
         } else {
@@ -667,19 +812,18 @@ export function actions(): void {
       if (item.kind == "bstring") {
         state.stack = cons({ kind: "BitStringValue", value: item.value }, stack);
         return;
-      }
-      if (item.kind == "hstring") {
+      } else if (item.kind == "hstring") {
         state.stack = cons({ kind: "BitStringValue", value: item.value }, stack);
         return;
       }
       const ids: string[] = [];
       while (true) {
+        /* istanbul ignore else */
         if (item.kind == "BitStringValue") {
           ids.reverse();
           state.stack = cons({ kind: "BitStringValue", value: ids }, stack);
           return;
-        }
-        if (item.kind == "identifier") {
+        } else if (item.kind == "identifier") {
           ids.push(item.value);
           [item, stack] = pop1(stack);
         } else {
@@ -701,6 +845,7 @@ export function actions(): void {
     if (state instanceof Asn1State) {
       const [item, stk] = pop1(state.stack);
       let val: BitString;
+      /* istanbul ignore else */
       if (item.kind == "bstring") {
         val = item.value;
       } else if (item.kind == "hstring") {
@@ -744,6 +889,7 @@ export function actions(): void {
   apply(OptionalComponentTypeQualifier, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [item, stk] = pop1(state.stack);
+      /* istanbul ignore else */
       if (item.kind == "NamedType") {
         const res: Item = { ...item };
         res.value.value = "OPTIONAL";
@@ -757,6 +903,7 @@ export function actions(): void {
   apply(DefaultComponentTypeQualifier, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       const [item, dItem, stk] = pop2(state.stack);
+      /* istanbul ignore else */
       if (item.kind == "NamedType" && dItem.kind == "Value") {
         const res: Item = { ...item };
         res.value.value = { DEFAULT: dItem.value };
@@ -779,12 +926,12 @@ export function actions(): void {
       let [item, stack] = pop1(state.stack);
       const components: AbstractNamedType[] = [];
       while (true) {
+        /* istanbul ignore else */
         if (item.kind == "SequenceType") {
           components.reverse();
           state.stack = cons({ kind: "SequenceType", value: components }, stack);
           return;
-        }
-        if (item.kind == "NamedType") {
+        } else if (item.kind == "NamedType") {
           components.push(item.value);
           [item, stack] = pop1(stack);
         } else {
@@ -805,12 +952,12 @@ export function actions(): void {
       let [item, stack] = pop1(state.stack);
       const components: NamedValueType[] = [];
       while (true) {
+        /* istanbul ignore else */
         if (item.kind == "SequenceValue") {
           components.reverse();
           state.stack = cons({ kind: "SequenceValue", value: components }, stack);
           return;
-        }
-        if (item.kind == "NamedValue") {
+        } else if (item.kind == "NamedValue") {
           components.push(item.value);
           [item, stack] = pop1(stack);
         } else {
@@ -826,10 +973,19 @@ export function actions(): void {
   apply(SequenceOfType, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       let [item, stack] = pop1(state.stack);
+      /* istanbul ignore else */
       if (item.kind == "Type") {
         state.stack = cons({ kind: "Type", value: { SEQUENCE_OF: { type: item.value } } }, stack);
       } else if (item.kind == "NamedType") {
-        state.stack = cons({ kind: "Type", value: { SEQUENCE_OF: { name: item.value.name, type: item.value.type } } }, stack);
+        state.stack = cons(
+          {
+            kind: "Type",
+            value: {
+              SEQUENCE_OF: { name: item.value.name, type: item.value.type },
+            },
+          },
+          stack
+        );
       } else {
         throw new Error(`internal error at SequenceOfType: [${item.kind}]`);
       }
@@ -845,11 +1001,13 @@ export function actions(): void {
   apply(SequenceOfValue, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       let [item, stack] = pop1(state.stack);
+      /* istanbul ignore else */
       if (item.kind == "SequenceOfValue") {
         return;
       } else if (item.kind == "Value") {
         const items: Value[] = [];
         while (true) {
+          /* istanbul ignore else */
           if (item.kind == "SequenceOfValue") {
             items.reverse();
             state.stack = cons({ kind: "SequenceOfValue", value: items }, stack);
@@ -864,6 +1022,7 @@ export function actions(): void {
       } else if (item.kind == "NamedValue") {
         const items: NamedValueType[] = [];
         while (true) {
+          /* istanbul ignore else */
           if (item.kind == "SequenceOfValue") {
             items.reverse();
             state.stack = cons({ kind: "SequenceOfValue", value: items }, stack);
@@ -895,12 +1054,12 @@ export function actions(): void {
       let [item, stack] = pop1(state.stack);
       const components: AbstractNamedType[] = [];
       while (true) {
+        /* istanbul ignore else */
         if (item.kind == "SetType") {
           components.reverse();
           state.stack = cons({ kind: "SetType", value: components }, stack);
           return;
-        }
-        if (item.kind == "NamedType") {
+        } else if (item.kind == "NamedType") {
           components.push(item.value);
           [item, stack] = pop1(stack);
         } else {
@@ -921,12 +1080,11 @@ export function actions(): void {
       let [item, stack] = pop1(state.stack);
       const components: NamedValueType[] = [];
       while (true) {
-        if (item.kind == "SetValue") {
+        if (item.kind == /* istanbul ignore else */ "SetValue") {
           components.reverse();
           state.stack = cons({ kind: "SetValue", value: components }, stack);
           return;
-        }
-        if (item.kind == "NamedValue") {
+        } else if (item.kind == "NamedValue") {
           components.push(item.value);
           [item, stack] = pop1(stack);
         } else {
@@ -942,10 +1100,17 @@ export function actions(): void {
   apply(SetOfType, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       let [item, stack] = pop1(state.stack);
+      /* istanbul ignore else */
       if (item.kind == "Type") {
         state.stack = cons({ kind: "Type", value: { SET_OF: { type: item.value } } }, stack);
       } else if (item.kind == "NamedType") {
-        state.stack = cons({ kind: "Type", value: { SET_OF: { name: item.value.name, type: item.value.type } } }, stack);
+        state.stack = cons(
+          {
+            kind: "Type",
+            value: { SET_OF: { name: item.value.name, type: item.value.type } },
+          },
+          stack
+        );
       } else {
         throw new Error(`internal error at SetOfType: [${item.kind}]`);
       }
@@ -961,11 +1126,13 @@ export function actions(): void {
   apply(SetOfValue, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       let [item, stack] = pop1(state.stack);
+      /* istanbul ignore else */
       if (item.kind == "SetOfValue") {
         return;
       } else if (item.kind == "Value") {
         const items: Value[] = [];
         while (true) {
+          /* istanbul ignore else */
           if (item.kind == "SetOfValue") {
             items.reverse();
             state.stack = cons({ kind: "SetOfValue", value: items }, stack);
@@ -980,6 +1147,7 @@ export function actions(): void {
       } else if (item.kind == "NamedValue") {
         const items: NamedValueType[] = [];
         while (true) {
+          /* istanbul ignore else */
           if (item.kind == "SetOfValue") {
             items.reverse();
             state.stack = cons({ kind: "SetOfValue", value: items }, stack);
@@ -1011,12 +1179,12 @@ export function actions(): void {
       let [item, stack] = pop1(state.stack);
       const components: AbstractNamedType[] = [];
       while (true) {
+        /* istanbul ignore else */
         if (item.kind == "ChoiceType") {
           components.reverse();
           state.stack = cons({ kind: "ChoiceType", value: components }, stack);
           return;
-        }
-        if (item.kind == "NamedType") {
+        } else if (item.kind == "NamedType") {
           components.push(item.value);
           [item, stack] = pop1(stack);
         } else {
@@ -1029,8 +1197,15 @@ export function actions(): void {
   apply(ChoiceValue, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       let [iItem, vItem, stack] = pop2(state.stack);
+      /* istanbul ignore else */
       if (iItem.kind == "identifier" && vItem.kind == "Value") {
-        state.stack = cons({ kind: "Value", value: { CHOICE: { name: iItem.value, value: vItem.value } } }, stack);
+        state.stack = cons(
+          {
+            kind: "Value",
+            value: { CHOICE: { name: iItem.value, value: vItem.value } },
+          },
+          stack
+        );
       } else {
         throw new Error(`internal error at ChoiceValue: [${iItem.kind}, ${vItem.kind}]`);
       }
@@ -1043,8 +1218,15 @@ export function actions(): void {
   apply(SelectionType, (state: State, len: number, txt: Lazy<string>) => {
     if (state instanceof Asn1State) {
       let [iItem, tItem, stack] = pop2(state.stack);
+      /* istanbul ignore else */
       if (iItem.kind == "identifier" && tItem.kind == "Type") {
-        state.stack = cons({ kind: "Type", value: { SELECTION: { name: iItem.value, type: tItem.value } } }, stack);
+        state.stack = cons(
+          {
+            kind: "Type",
+            value: { SELECTION: { name: iItem.value, type: tItem.value } },
+          },
+          stack
+        );
       } else {
         throw new Error(`internal error at ChoiceValue: [${iItem.kind}, ${tItem.kind}]`);
       }
@@ -1053,5 +1235,368 @@ export function actions(): void {
 
   // Clause 31 Tags
   //
-  
+
+  apply(TagIntroducer, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      state.stack = cons({ kind: "TaggedType", value: { value: "NULL", type: "NULL" } }, state.stack);
+    }
+  });
+
+  apply(TagClassNumber, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [tItem, cItem, stack] = pop2(state.stack);
+      /* istanbul ignore else */
+      if (tItem.kind == "TaggedType" && cItem.kind == "number") {
+        const t: AbstractTaggedType = {
+          ...tItem.value,
+          value: { INTEGER: cItem.value },
+        };
+        state.stack = cons({ kind: "TaggedType", value: t }, stack);
+      } else if (tItem.kind == "TaggedType" && cItem.kind == "Value") {
+        const t: AbstractTaggedType = {
+          ...tItem.value,
+          value: cItem.value,
+        };
+        state.stack = cons({ kind: "TaggedType", value: t }, stack);
+      } else {
+        throw new Error(`internal error at TagClassNumber: [${tItem.kind}, ${cItem.kind}]`);
+      }
+    }
+  });
+
+  apply(TagClass, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [tItem, stack] = pop1(state.stack);
+      /* istanbul ignore else */
+      if (tItem.kind == "TaggedType") {
+        const t: AbstractTaggedType = {
+          ...tItem.value,
+        };
+        const src = txt.get();
+        switch (src) {
+          case "UNIVERSAL":
+          case "APPLICATION":
+          case "PRIVATE": {
+            t.class = src;
+            break;
+          }
+          default: {
+            throw new Error(`internal error at TagClass (1): [${tItem.kind}, "${txt.get()}"]`);
+          }
+        }
+        state.stack = cons({ kind: "TaggedType", value: t }, stack);
+      } else {
+        throw new Error(`internal error at TagClass (2): [${tItem.kind}, "${txt.get()}"]`);
+      }
+    }
+  });
+
+  // EncodingRegerence ignored.
+
+  apply(ExplicitTag, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [tItem, stack] = pop1(state.stack);
+      /* istanbul ignore else */
+      if (tItem.kind == "TaggedType") {
+        const t: AbstractTaggedType = {
+          ...tItem.value,
+          plicity: "EXPLICIT",
+        };
+        state.stack = cons({ kind: "TaggedType", value: t }, stack);
+      } else {
+        throw new Error(`internal error at ExplicitTag: [${tItem.kind}]`);
+      }
+    }
+  });
+
+  apply(ImplicitTag, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [tItem, stack] = pop1(state.stack);
+      /* istanbul ignore else */
+      if (tItem.kind == "TaggedType") {
+        const t: AbstractTaggedType = {
+          ...tItem.value,
+          plicity: "IMPLICIT",
+        };
+        state.stack = cons({ kind: "TaggedType", value: t }, stack);
+      } else {
+        throw new Error(`internal error at ImplicitTag: [${tItem.kind}]`);
+      }
+    }
+  });
+
+  apply(TaggedType, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [tItem, uItem, stack] = pop2(state.stack);
+      /* istanbul ignore else */
+      if (tItem.kind == "TaggedType" && uItem.kind == "Type") {
+        const t: AbstractTaggedType = {
+          ...tItem.value,
+          type: uItem.value,
+        };
+        state.stack = cons({ kind: "TaggedType", value: t }, stack);
+      } else {
+        throw new Error(`internal error at TaggedType: [${tItem.kind}, ${uItem.kind}]`);
+      }
+    }
+  });
+
+  // Clause 32 Object Identifiers
+
+  apply(ObjectIdentifierType, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      state.stack = cons({ kind: "Type", value: "OBJECT IDENTIFIER" }, state.stack);
+    }
+  });
+
+  apply(ObjectIdentifierValueIntroducer, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      state.stack = cons({ kind: "OidValue", value: [] }, state.stack);
+    }
+  });
+
+  apply(NameAndNumberForm, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [oItem, iItem, nItem, stack] = pop3(state.stack);
+      /* istanbul ignore else */
+      if (oItem.kind == "OidValue" && iItem.kind == "identifier" && nItem.kind == "number") {
+        state.stack = cons({ kind: "OidValue", value: [...oItem.value, [iItem.value, nItem.value]] }, stack);
+      } else {
+        throw new Error(`internal error at TaggedType: [${oItem.kind}, ${iItem.kind}, ${nItem.kind}]`);
+      }
+    }
+  });
+
+  apply(NumberForm, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [oItem, nItem, stack] = pop2(state.stack);
+      /* istanbul ignore else */
+      if (oItem.kind == "OidValue" && nItem.kind == "number") {
+        state.stack = cons({ kind: "OidValue", value: [...oItem.value, nItem.value] }, stack);
+      } else {
+        console.log(toArray(state.stack));
+        throw new Error(`internal error at TaggedType: [${oItem.kind}, ${nItem.kind}]`);
+      }
+    }
+  });
+
+  apply(NameForm, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [oItem, iItem, stack] = pop2(state.stack);
+      /* istanbul ignore else */
+      if (oItem.kind == "OidValue" && iItem.kind == "identifier") {
+        state.stack = cons({ kind: "OidValue", value: [...oItem.value, iItem.value] }, stack);
+      } else {
+        throw new Error(`internal error at TaggedType: [${oItem.kind}, ${iItem.kind},]`);
+      }
+    }
+  });
+
+  // Clause 38 Time & Date
+  //
+
+  apply(TimeType, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      state.stack = cons({ kind: "Type", value: "TIME" }, state.stack);
+    }
+  });
+
+  apply(DateType, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      state.stack = cons({ kind: "Type", value: "DATE" }, state.stack);
+    }
+  });
+
+  apply(TimeOfDayType, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      state.stack = cons({ kind: "Type", value: "TIME-OF-DAY" }, state.stack);
+    }
+  });
+
+  apply(DateTimeType, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      state.stack = cons({ kind: "Type", value: "DATE-TIME" }, state.stack);
+    }
+  });
+
+  apply(DurationType, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      state.stack = cons({ kind: "Type", value: "DURATION" }, state.stack);
+    }
+  });
+
+  // Clause 39, 40, 41, 42, 43, 44
+  //
+
+  apply(RestrictedCharacterStringType, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      state.stack = cons({ kind: "Type", value: { String: txt.get() } }, state.stack);
+    }
+  });
+
+  apply(UnrestrictedCharacterStringType, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      state.stack = cons({ kind: "Type", value: { String: "" } }, state.stack);
+    }
+  });
+
+  apply(Tuple, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [cItem, rItem, stack] = pop2(state.stack);
+      /* istanbul ignore else */
+      if (cItem.kind == "number" && rItem.kind == "number") {
+        const col: bigint = cItem.value;
+        const row: bigint = rItem.value;
+        state.stack = cons({ kind: "Value", value: { CHARACTER_STRING: { tuple: [col, row] } } }, stack);
+      } else {
+        throw new Error(`internal error at Tuple: [${cItem.kind}, ${rItem.kind}]`);
+      }
+    }
+  });
+
+  apply(Quadruple, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [gItem, pItem, rItem, cItem, stack] = pop4(state.stack);
+      /* istanbul ignore else */
+      if (gItem.kind == "number" && pItem.kind == "number" && rItem.kind == "number" && cItem.kind == "number") {
+        const group: bigint = gItem.value;
+        const plane: bigint = pItem.value;
+        const row: bigint = rItem.value;
+        const cell: bigint = cItem.value;
+        state.stack = cons({ kind: "Value", value: { CHARACTER_STRING: { quad: [group, plane, row, cell] } } }, stack);
+      } else {
+        throw new Error(`internal error at Tuple: [${cItem.kind}, ${rItem.kind}]`);
+      }
+    }
+  });
+
+  apply(AtomicCharacterString, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [cItem, stack] = pop1(state.stack);
+      /* istanbul ignore else */
+      if (cItem.kind == "cstring") {
+        state.stack = cons({ kind: "Value", value: { CHARACTER_STRING: { atom: cItem.value } } }, stack);
+      } else {
+        throw new Error(`internal error at Tuple: [${cItem.kind}]`);
+      }
+    }
+  });
+
+  apply(CharacterStringListIntroducer, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      state.stack = cons({ kind: "CharacterStringList", value: [] }, state.stack);
+    }
+  });
+
+  apply(CharacterStringList, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [item, stack] = pop1(state.stack);
+      const components: CharacterStringComponent[] = [];
+      while (true) {
+        /* istanbul ignore else */
+        if (item.kind == "CharacterStringList") {
+          components.reverse();
+          state.stack = cons({ kind: "CharacterStringList", value: components }, stack);
+          return;
+        } else if (item.kind == "Value" && typeof item.value == "object" && "CHARACTER_STRING" in item.value) {
+          components.push(item.value.CHARACTER_STRING);
+          [item, stack] = pop1(stack);
+        } else {
+          throw new Error(`internal error at CharacterStringList: [${item.kind}]`);
+        }
+      }
+    }
+  });
+
+  // Clauses 49-51 Constraints
+
+  apply(SingleValue, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [vItem, stack] = pop1(state.stack);
+      /* istanbul ignore else */
+      if (vItem.kind == "Value") {
+        state.stack = cons({ kind: "Constraint", value: { kind: "Value", value: vItem.value } }, stack);
+      } else {
+        throw new Error(`internal error at SingleValue: [${vItem.kind}]`);
+      }
+    }
+  });
+
+  apply(ValueRangeIntroducer, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      state.stack = cons({ kind: "ValueRange", min: "MIN", minIncluded: true, max: "MAX", maxIncluded: true }, state.stack);
+    }
+  });
+
+  apply(LowerEndValueValue, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [rItem, vItem, stack] = pop2(state.stack);
+      /* istanbul ignore else */
+      if (rItem.kind == "ValueRange" && vItem.kind == "Value") {
+        state.stack = cons({ ...rItem, min: vItem.value }, stack);
+      } else {
+        throw new Error(`internal error at LowerEndValueValue: [${vItem.kind}]`);
+      }
+    }
+  });
+
+  apply(UpperEndValueValue, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [rItem, vItem, stack] = pop2(state.stack);
+      /* istanbul ignore else */
+      if (rItem.kind == "ValueRange" && vItem.kind == "Value") {
+        state.stack = cons({ ...rItem, max: vItem.value }, stack);
+      } else {
+        throw new Error(`internal error at UpperEndValueValue: [${vItem.kind}]`);
+      }
+    }
+  });
+
+  apply(LowerLess, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [rItem, stack] = pop1(state.stack);
+      /* istanbul ignore else */
+      if (rItem.kind == "ValueRange") {
+        state.stack = cons({ ...rItem, minIncluded: false }, stack);
+      } else {
+        throw new Error(`internal error at LowerLess: [${rItem.kind}]`);
+      }
+    }
+  });
+
+  apply(UpperLess, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [rItem, stack] = pop1(state.stack);
+      /* istanbul ignore else */
+      if (rItem.kind == "ValueRange") {
+        state.stack = cons({ ...rItem, maxIncluded: false }, stack);
+      } else {
+        throw new Error(`internal error at UpperLess: [${rItem.kind}]`);
+      }
+    }
+  });
+
+  apply(ValueRange, (state: State, len: number, txt: Lazy<string>) => {
+    if (state instanceof Asn1State) {
+      let [rItem, stack] = pop1(state.stack);
+      /* istanbul ignore else */
+      if (rItem.kind == "ValueRange") {
+        state.stack = cons(
+          {
+            kind: "Constraint",
+            value: {
+              kind: "Range",
+              min: rItem.min,
+              minIncluded: rItem.minIncluded,
+              max: rItem.max,
+              maxIncluded: rItem.maxIncluded,
+            },
+          },
+          stack
+        );
+      } else {
+        throw new Error(`internal error at ValueRange: [${rItem.kind}]`);
+      }
+    }
+  });
 }

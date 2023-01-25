@@ -46,6 +46,14 @@ export function pop3<T>(l: Stack<T>): [T, T, T, Stack<T>] {
   return [v1, v2, v3, l3];
 }
 
+export function pop4<T>(l: Stack<T>): [T, T, T, T, Stack<T>] {
+  const [v4, l1] = decons(l);
+  const [v3, l2] = decons(l1);
+  const [v2, l3] = decons(l2);
+  const [v1, l4] = decons(l3);
+  return [v1, v2, v3, v4, l4];
+}
+
 export function toArray<T>(l: Stack<T>): T[] {
   const res: T[] = [];
   while (true) {
